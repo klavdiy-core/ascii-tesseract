@@ -1,7 +1,7 @@
 {
   "name": "ascii-tesseract",
-  "version": "0.1.0",
-  "description": "A 4D cube turning in ASCII, with a slice mode where \"now\" slides along the fourth axis. Pure JS, terminal and browser.",
+  "version": "0.2.0",
+  "description": "A 4D cube turning in ASCII, and a converter that turns any picture, video or camera into characters. Pure JS, terminal and browser.",
   "type": "commonjs",
   "main": "tesseract.js",
   "bin": { "ascii-tesseract": "tesseract.js" },

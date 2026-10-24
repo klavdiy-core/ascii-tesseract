@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ascii converter</title>
+<style>
+  :root { --bg: #0b0b0d; --panel: #141418; --fg: #d8d6cf; --dim: #77746c; --accent: #e8b04a; --line: #2a2a31; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+               font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+  .app { display: grid; grid-template-columns: 1fr 300px; min-height: 100vh; }
+  .stage { display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; position: relative; }
+  .stage canvas { max-width: 100%; max-height: calc(100vh - 32px); image-rendering: auto; }
+  .drop { position: absolute; inset: 16px; border: 2px dashed var(--accent); display: none;
+          align-items: center; justify-content: center; font-size: 18px; color: var(--accent); background: #0b0b0dcc; }
+  .drop.on { display: flex; }
+  aside { background: var(--panel); border-left: 1px solid var(--line); padding: 14px; overflow-y: auto; max-height: 100vh; }
+  h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 16px 0 6px; font-weight: normal; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, select, input[type=text] { font: inherit; color: var(--fg); background: #1c1c22; border: 1px solid var(--line);
+                                     padding: 5px 8px; border-radius: 3px; }
+  button { cursor: pointer; }
+  button:hover, button.on { border-color: var(--accent); color: var(--accent); }
+  label { display: grid; grid-template-columns: 92px 1fr 34px; align-items: center; gap: 6px; margin: 4px 0; color: var(--dim); }
+  label.check { grid-template-columns: 92px 1fr; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  output { text-align: right; color: var(--fg); }
+  .wide { width: 100%; }
+  a { color: var(--dim); }
+  @media (max-width: 760px) { .app { grid-template-columns: 1fr; } aside { max-height: none; border-left: 0; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="view"></canvas>
+    <div class="drop" id="drop">drop an image or a video</div>
+  </div>
+  <aside>
+    <h2>source</h2>
+    <div class="row">
+      <button id="src-tesseract" class="on">tesseract</button>
+      <button id="src-file">image / video…</button>
+      <button id="src-cam">camera</button>
+    </div>
+    <input type="file" id="file" accept="image/*,video/*" hidden>
+
+    <h2>presets</h2>
+    <div class="row" id="presets"></div>
+
+    <h2>style</h2>
+    <select id="style" class="wide"></select>
+    <input type="text" id="chars" class="wide" placeholder="your characters, sparse to dense" style="margin-top:6px;display:none">
+    <label>detail <input type="range" id="cols" min="20" max="240" value="100"><output></output></label>
+    <label>font px <input type="range" id="fontSize" min="5" max="20" value="9"><output></output></label>
+
+    <h2>tone</h2>
+    <label>brightness <input type="range" id="brightness" min="-0.5" max="0.5" step="0.01" value="0"><output></output></label>
+    <label>contrast <input type="range" id="contrast" min="-0.9" max="2" step="0.05" value="0"><output></output></label>
+    <label>gamma <input type="range" id="gamma" min="0.3" max="3" step="0.05" value="1"><output></output></label>
+    <label>dot level <input type="range" id="threshold" min="0.05" max="0.95" step="0.01" value="0.5"><output></output></label>
+    <label class="check">invert <input type="checkbox" id="invert"></label>
+
+    <h2>colour</h2>
+    <div class="row" id="colour">
+      <button data-v="mono">mono</button><button data-v="original" class="on">original</button><button data-v="palette">palette</button>
+    </div>
+    <label>ink <input type="color" id="ink" value="#e6e6e6"><span></span></label>
+    <label>background <input type="color" id="bg" value="#08080c"><span></span></label>
+    <label>colour boost <input type="range" id="boost" min="0" max="2" step="0.05" value="0.8"><output></output></label>
+
+    <h2>effects</h2>
+    <label>bloom <input type="range" id="bloom" min="0" max="1" step="0.05" value="0"><output></output></label>
+    <label>scanlines <input type="range" id="scanlines" min="0" max="0.8" step="0.05" value="0"><output></output></label>
+    <label>grain <input type="range" id="grain" min="0" max="0.5" step="0.01" value="0"><output></output></label>
+    <label>vignette <input type="range" id="vignette" min="0" max="1" step="0.05" value="0"><output></output></label>
+    <label>flicker <input type="range" id="flicker" min="0" max="1" step="0.05" value="0"><output></output></label>
+
+    <h2>save</h2>
+    <div class="row">
+      <button id="save-png">image (png)</button>
+      <button id="save-txt">text</button>
+      <button id="rec">record video</button>
+    </div>
+    <p style="color:var(--dim)">Nothing leaves your browser. <a href="index.html">the tesseract alone</a> ·
+      <a href="https://github.com/klavdiy-core/ascii-tesseract">source</a></p>
+  </aside>
+</div>
+<script src="tesseract.js"></script>
+<script src="ascii.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const view = $('view'), vctx = view.getContext('2d');
+  const grab = document.createElement('canvas'), gctx = grab.getContext('2d', { willReadFrequently: true });
+  let source = { kind: 'tesseract' }, last = null, t0 = performance.now();
+
+  // ---------- controls ----------
+  const NUM = ['cols', 'fontSize', 'brightness', 'contrast', 'gamma', 'threshold', 'boost', 'bloom', 'scanlines', 'grain', 'vignette', 'flicker'];
+  for (const s of Object.keys(Ascii.STYLES)) $('style').add(new Option(s, s));
+  $('style').value = 'braille';
+  const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  let colour = 'original';
+  for (const b of $('colour').querySelectorAll('button')) {
+    b.onclick = () => { colour = b.dataset.v; for (const x of $('colour').children) x.classList.toggle('on', x === b); };
+  }
+  for (const id of NUM) {
+    const el = $(id), out = el.parentElement.querySelector('output');
+    const show = () => { out.textContent = (+el.value).toFixed(el.step && el.step < 1 ? 2 : 0); };
+    el.oninput = show; show();
+  }
+  $('style').onchange = () => { $('chars').style.display = $('style').value === 'custom' ? '' : 'none'; };
+
+  const DEFAULTS = { brightness: 0, contrast: 0, gamma: 1, threshold: 0.5, boost: 0, bloom: 0, scanlines: 0, grain: 0, vignette: 0, flicker: 0, invert: false };
+  function applyPreset(p) {
+    const v = { ...DEFAULTS, ...p };
+    $('style').value = v.style; $('style').onchange();
+    for (const id of NUM) if (id in v) { $(id).value = v[id]; $(id).oninput(); }
+    $('invert').checked = !!v.invert;
+    if (v.ink) $('ink').value = hex(v.ink);
+    if (v.bg) $('bg').value = hex(v.bg);
+    $('colour').querySelector(`[data-v="${v.colour || 'mono'}"]`).onclick();
+  }
+  for (const [name, p] of Object.entries(Ascii.PRESETS)) {
+    const b = document.createElement('button');
+    b.textContent = name.replace(/_/g, ' ');
+    b.onclick = () => applyPreset(p);
+    $('presets').appendChild(b);
+  }
+  applyPreset(Ascii.PRESETS.braille);
+
+  function options() {
+    const o = { style: $('style').value, chars: $('chars').value || undefined, invert: $('invert').checked,
+                colour, ink: rgb($('ink').value), bg: rgb($('bg').value),
+                palette: [[20, 12, 60], [120, 40, 140], [240, 90, 120], [255, 210, 120], [255, 255, 235]] };
+    for (const id of NUM) o[id] = +$(id).value;
+    return o;
+  }
+
+  // ---------- sources ----------
+  function pick(btn) { for (const b of ['src-tesseract', 'src-file', 'src-cam']) $(b).classList.toggle('on', b === btn); }
+  function stopCam() { if (source.stream) source.stream.getTracks().forEach((tr) => tr.stop()); }
+  $('src-tesseract').onclick = () => { stopCam(); source = { kind: 'tesseract' }; pick('src-tesseract'); };
+  $('src-file').onclick = () => $('file').click();
+  $('file').onchange = () => $('file').files[0] && load($('file').files[0]);
+  $('src-cam').onclick = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stopCam();
+      const v = document.createElement('video');
+      v.srcObject = stream; v.muted = true; v.playsInline = true; await v.play();
+      source = { kind: 'media', el: v, stream }; pick('src-cam');
+    } catch (e) { alert('No camera: ' + e.message); }
+  };
+  function load(file) {
+    stopCam();
+    const url = URL.createObjectURL(file);
+    if (file.type.startsWith('video/')) {
+      const v = document.createElement('video');
+      v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play();
+      source = { kind: 'media', el: v };
+    } else {
+      const im = new Image();
+      im.src = url;
+      source = { kind: 'media', el: im };
+    }
+    pick('src-file');
+  }
+  const stage = $('stage'), drop = $('drop');
+  stage.ondragover = (e) => { e.preventDefault(); drop.classList.add('on'); };
+  stage.ondragleave = () => drop.classList.remove('on');
+  stage.ondrop = (e) => { e.preventDefault(); drop.classList.remove('on'); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); };
+
+  function pixels() {
+    if (source.kind === 'tesseract') return Tesseract.image((performance.now() - t0) / 1000, { width: 480, height: 480, thickness: 2.5 });
+    const el = source.el;
+    const w = el.videoWidth || el.naturalWidth, h = el.videoHeight || el.naturalHeight;
+    if (!w || !h) return null;
+    const k = Math.min(1, 900 / Math.max(w, h));
+    grab.width = Math.round(w * k); grab.height = Math.round(h * k);
+    gctx.drawImage(el, 0, 0, grab.width, grab.height);
+    return gctx.getImageData(0, 0, grab.width, grab.height);
+  }
+
+  // ---------- loop ----------
+  function tick() {
+    const px = pixels();
+    if (px) {
+      const o = options();
+      last = Ascii.render(px, o);
+      Ascii.draw(vctx, last, o);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- save ----------
+  const download = (blob, name) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $('save-png').onclick = () => view.toBlob((b) => download(b, 'ascii.png'));
+  $('save-txt').onclick = () => last && download(new Blob([Ascii.toText(last)], { type: 'text/plain' }), 'ascii.txt');
+  let rec = null;
+  $('rec').onclick = () => {
+    if (rec) { rec.stop(); return; }
+    if (!window.MediaRecorder) { alert('This browser cannot record a canvas.'); return; }
+    const chunks = [];
+    rec = new MediaRecorder(view.captureStream(30), { mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm' });
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = () => { download(new Blob(chunks, { type: 'video/webm' }), 'ascii.webm'); rec = null; $('rec').textContent = 'record video'; $('rec').classList.remove('on'); };
+    rec.start();
+    $('rec').textContent = 'stop recording'; $('rec').classList.add('on');
+  };
+</script>
+</body>
+</html>

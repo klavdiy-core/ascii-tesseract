@@ -1,10 +1,34 @@
 # ascii-tesseract
 
-A 4D cube turning in ASCII. Pure JavaScript, no dependencies, one file. Runs in a terminal and in a browser.
+**A 4D cube turning in ASCII, and a converter that turns any picture, video or camera into characters.** Pure JavaScript, no dependencies, nothing uploaded anywhere.
 
-> RU: тессеракт — четырёхмерный куб — вращается в ASCII. Чистый JS, один файл, терминал и браузер. Режим среза: мы живём в 3D и видим только срез, а «сейчас» скользит по четвёртой оси.
+> RU: тессеракт — четырёхмерный куб — вращается в ASCII. И конвертер: любая картинка, видео или камера → символы (брайль, блоки, точки, старый монитор…), прямо в браузере. Режим среза: мы живём в 3D и видим только срез, а «сейчас» скользит по четвёртой оси.
 
-**Live:** https://klavdiy-core.github.io/ascii-tesseract/ · slice mode: https://klavdiy-core.github.io/ascii-tesseract/?slice
+**Converter:** https://klavdiy-core.github.io/ascii-tesseract/convert.html · **tesseract:** https://klavdiy-core.github.io/ascii-tesseract/ · slice mode: https://klavdiy-core.github.io/ascii-tesseract/?slice
+
+![the same tesseract through four styles: old monitor, braille, true colour, halftone](media/styles.gif)
+
+## Converter
+
+Open `convert.html` (or the link above). Drop an image or a video on it, or press *camera*; the tesseract is the default source.
+
+- **Styles:** classic ` .:-=+*#%@`, detailed (70 characters), blocks `░▒▓█`, dots `·•●`, binary, braille (2×4 dots per character), or your own characters.
+- **Presets:** old monitor, amber glow, digital rain, printed page, braille, true colour, halftone.
+- **Tone:** detail (columns), brightness, contrast, gamma, invert, dot level for braille.
+- **Colour:** mono ink, the picture's own colours (with a boost), or a palette by brightness; any background.
+- **Effects:** bloom, scanlines, grain, vignette, flicker.
+- **Save:** PNG, plain text, or record the canvas as a WebM video.
+
+The engine is `ascii.js`, usable on its own:
+
+```js
+const Ascii = require('./ascii.js');                     // or <script src="ascii.js"> -> window.Ascii
+const res = Ascii.render(imageData, { cols: 100, style: 'braille', colour: 'original' });
+console.log(Ascii.toText(res));                          // res.cells[row][col] = { ch, rgb, lum }
+Ascii.draw(canvas.getContext('2d'), res, { bloom: 0.5, scanlines: 0.3 });   // browser
+```
+
+`Tesseract.image(t, { width, height })` gives the tesseract itself as pixels (colour follows the fourth coordinate), which is how it feeds the converter.
 
 | whole | slice |
 |---|---|
@@ -36,7 +60,9 @@ npm test
 
 Hand-checked facts, not snapshots: 16 corners, 32 edges of length 2 with four at each corner, 24 square faces; rotation keeps length and a quarter turn in XW sends x to w; the perspective factor is `1/(d − w)`; the slice at `w = 0` of an unrotated tesseract is a cube (8 corners, 12 edges of length 2), a slice outside is empty, and a tilted slice is a closed polyhedron (every corner meets at least three edges); frames are deterministic and sized as asked.
 
-`scripts/make_gif.py` re-records the GIFs (Node + Pillow).
+The converter's tests (`test/ascii.test.js`): black maps to the sparsest character and white to the densest in every style, brighter never picks a sparser one, invert swaps the ends, braille sets exactly the dots that are lit (`⣿` all, `⠀` none, the left column alone = `0x47`), rows follow the character aspect, original colour is kept and boosted, mono uses the ink, the palette follows brightness, contrast and gamma move the middle but not the ends, unknown styles are an error.
+
+`scripts/make_gif.py` re-records the tesseract GIFs, `scripts/make_styles_gif.py` the styles GIF (Node + Pillow).
 
 ## License
 

@@ -150,7 +150,50 @@
     return grid.map((r) => r.join('')).join('\n');
   }
 
-  const api = { RAMP, vertices, edges, faces, rotate, project4, slice, frame, angles };
+  // The same tesseract as pixels, { width, height, data: RGBA }, to feed ascii.js (or a canvas).
+  // Colour follows w, the fourth coordinate: cyan on the far cube (w = -1) to magenta on the near one
+  // (w = +1); brightness and thickness follow depth.
+  function image(t, opts = {}) {
+    const W = opts.width || 320, H = opts.height || 320;
+    const data = new Uint8ClampedArray(W * H * 4);
+    for (let i = 3; i < data.length; i += 4) data[i] = 255;
+    const s = Math.min(W, H) / 2 / 0.95;
+    const R = vertices().map((p) => rotate(p, angles(t)));
+    const screen = (p4) => {
+      const [x, y, z] = project4(p4);
+      const k = D3 / (D3 - z);
+      return [W / 2 + x * k * s, H / 2 - y * k * s, z, k];
+    };
+    const blob = (x, y, r, rgb) => {
+      for (let py = Math.max(0, Math.floor(y - r)); py <= Math.min(H - 1, Math.ceil(y + r)); py++) {
+        for (let px = Math.max(0, Math.floor(x - r)); px <= Math.min(W - 1, Math.ceil(x + r)); px++) {
+          const f = 1 - Math.hypot(px - x, py - y) / r;
+          if (f <= 0) continue;
+          const i = (py * W + px) * 4;
+          for (let c = 0; c < 3; c++) data[i + c] = Math.max(data[i + c], rgb[c] * Math.min(1, f * 2));
+        }
+      }
+    };
+    const colour = (w, z) => {
+      const u = (w + 1) / 2, b = 0.45 + 0.55 * Math.max(0, Math.min(1, (z + 1) / 2));
+      return [(60 + 195 * u) * b, (230 - 150 * u) * b, 255 * b];
+    };
+    const r0 = Math.max(1.5, Math.min(W, H) / 110) * (opts.thickness || 1);
+    for (const [i, j] of edges()) {
+      const a = screen(R[i]), b = screen(R[j]);
+      const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (r0 * 0.5)) + 1;
+      for (let m = 0; m <= n; m++) {
+        const u = m / n;
+        const p = R[i].map((v, k) => v + (R[j][k] - v) * u);
+        const q = screen(p);
+        blob(q[0], q[1], r0 * q[3], colour(p[3], q[2]));
+      }
+    }
+    for (const p of R) { const q = screen(p); blob(q[0], q[1], r0 * 1.5 * q[3], [255, 255, 255]); }
+    return { width: W, height: H, data };
+  }
+
+  const api = { RAMP, vertices, edges, faces, rotate, project4, slice, frame, angles, image };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Tesseract = api;
