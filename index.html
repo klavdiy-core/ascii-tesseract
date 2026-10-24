@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ascii tesseract</title>
+<style>
+  :root { --bg: #0b0b0d; --fg: #d8d6cf; --dim: #6d6a63; --accent: #e8b04a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center;
+         font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+  pre { margin: 0; font-size: 14px; line-height: 1.0; letter-spacing: 0; user-select: none; cursor: pointer; }
+  .bar { margin-top: 14px; font-size: 13px; color: var(--dim); text-align: center; padding: 0 16px; }
+  .bar b { color: var(--accent); font-weight: normal; }
+  button { font: inherit; color: var(--fg); background: none; border: 1px solid var(--dim);
+           padding: 4px 10px; margin: 0 4px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  a { color: var(--dim); }
+</style>
+</head>
+<body>
+<pre id="out" title="click: slice / whole"></pre>
+<div class="bar">
+  <button id="mode">slice</button>
+  <button id="pause">pause</button>
+  <span id="hint">a 4D cube, projected. <b>slice</b>: we only ever see a 3D cut, and "now" slides along w.</span>
+  · <a href="https://github.com/klavdiy-core/ascii-tesseract">source</a>
+</div>
+<script src="tesseract.js"></script>
+<script>
+  const out = document.getElementById('out');
+  const modeBtn = document.getElementById('mode');
+  const pauseBtn = document.getElementById('pause');
+  let slice = new URLSearchParams(location.search).has('slice');
+  let paused = false, t = 0, last = performance.now();
+
+  function size() {
+    const probe = document.createElement('span');
+    probe.textContent = 'M'.repeat(50);
+    out.appendChild(probe);
+    const cw = probe.getBoundingClientRect().width / 50, ch = probe.getBoundingClientRect().height;
+    out.removeChild(probe);
+    return {
+      width: Math.max(30, Math.min(140, Math.floor((innerWidth - 32) / cw))),
+      height: Math.max(16, Math.min(60, Math.floor((innerHeight - 90) / ch))),
+    };
+  }
+  let dims = size();
+  addEventListener('resize', () => { dims = size(); });
+
+  function toggle() { slice = !slice; modeBtn.textContent = slice ? 'whole' : 'slice'; }
+  modeBtn.textContent = slice ? 'whole' : 'slice';
+  modeBtn.onclick = toggle;
+  out.onclick = toggle;
+  pauseBtn.onclick = () => { paused = !paused; pauseBtn.textContent = paused ? 'play' : 'pause'; };
+  addEventListener('keydown', (e) => {
+    if (e.key === 's') toggle();
+    if (e.key === ' ') { e.preventDefault(); pauseBtn.onclick(); }
+  });
+
+  function tick(now) {
+    if (!paused) t += (now - last) / 1000;
+    last = now;
+    out.textContent = Tesseract.frame(t, { ...dims, slice });
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

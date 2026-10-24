@@ -1,0 +1,12 @@
+{
+  "name": "ascii-tesseract",
+  "version": "0.1.0",
+  "description": "A 4D cube turning in ASCII, with a slice mode where \"now\" slides along the fourth axis. Pure JS, terminal and browser.",
+  "type": "commonjs",
+  "main": "tesseract.js",
+  "bin": { "ascii-tesseract": "tesseract.js" },
+  "scripts": { "test": "node --test \"test/*.test.js\"", "start": "node tesseract.js" },
+  "license": "MIT",
+  "repository": "github:klavdiy-core/ascii-tesseract",
+  "keywords": ["ascii", "tesseract", "4d", "hypercube", "code-art", "terminal", "animation"]
+}
