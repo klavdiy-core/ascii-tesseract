@@ -12,6 +12,8 @@
 
 Open `convert.html` (or the link above). Drop an image or a video on it, or press *camera*; the tesseract is the default source.
 
+**Tweet shaders.** Press *tweet shader* and paste a GLSL one-liner of the kind posted under #つぶやきGLSL (twigl "geekest" style: `FC`, `r`, `t`, `o`, `hsv()`, `rotate2D()`, `rotate3D()`). It runs in WebGL2 and goes straight into the styles; hashtags in the paste are dropped. Compile errors are shown under the box. `shader.js` does this and works on its own: `Shader.create(code, w, h).frame(t)` returns the pixels.
+
 - **Styles:** classic ` .:-=+*#%@`, detailed (70 characters), blocks `░▒▓█`, dots `·•●`, binary, braille (2×4 dots per character), or your own characters.
 - **Presets:** old monitor, amber glow, digital rain, printed page, braille, true colour, halftone.
 - **Tone:** detail (columns), brightness, contrast, gamma, invert, dot level for braille.

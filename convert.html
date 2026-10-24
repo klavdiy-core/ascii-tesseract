@@ -43,8 +43,16 @@
       <button id="src-tesseract" class="on">tesseract</button>
       <button id="src-file">image / video…</button>
       <button id="src-cam">camera</button>
+      <button id="src-shader">tweet shader</button>
     </div>
     <input type="file" id="file" accept="image/*,video/*" hidden>
+    <div id="shader-box" style="display:none;margin-top:8px">
+      <textarea id="shader-code" class="wide" rows="6" spellcheck="false"
+        style="font:inherit;font-size:11px;color:var(--fg);background:#1c1c22;border:1px solid var(--line);padding:6px"></textarea>
+      <div class="row" style="margin-top:4px"><button id="shader-run">run</button>
+        <span style="color:var(--dim);align-self:center">twigl geekest: FC, r, t, o, hsv()</span></div>
+      <pre id="shader-err" style="color:#e66;white-space:pre-wrap;font-size:11px;margin:4px 0 0"></pre>
+    </div>
 
     <h2>presets</h2>
     <div class="row" id="presets"></div>
@@ -89,6 +97,7 @@
 </div>
 <script src="tesseract.js"></script>
 <script src="ascii.js"></script>
+<script src="shader.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
   const view = $('view'), vctx = view.getContext('2d');
@@ -139,7 +148,23 @@
   }
 
   // ---------- sources ----------
-  function pick(btn) { for (const b of ['src-tesseract', 'src-file', 'src-cam']) $(b).classList.toggle('on', b === btn); }
+  function pick(btn) {
+    for (const b of ['src-tesseract', 'src-file', 'src-cam', 'src-shader']) $(b).classList.toggle('on', b === btn);
+    $('shader-box').style.display = btn === 'src-shader' ? '' : 'none';
+  }
+  // a tweet-sized shader of our own; paste any #つぶやきGLSL one-liner instead
+  $('shader-code').value = 'for(float i=0.;i<8.;i++){vec2 p=(FC.xy*2.-r)/r.y*rotate2D(t*.3+i);' +
+    'o.rgb+=hsv(i/8.+t*.05,.7,.012/abs(length(p+vec2(sin(t+i),cos(t*.7+i))*.3)-.4+i*.03));}';
+  function runShader() {
+    stopCam();
+    const sh = Shader.create($('shader-code').value, 480, 320);
+    $('shader-err').textContent = sh.error;
+    if (!sh.error) { source = { kind: 'shader', sh }; t0 = performance.now(); }
+    pick('src-shader');
+  }
+  $('src-shader').onclick = runShader;
+  $('shader-run').onclick = runShader;
+  if (new URLSearchParams(location.search).has('shader')) addEventListener('load', runShader);
   function stopCam() { if (source.stream) source.stream.getTracks().forEach((tr) => tr.stop()); }
   $('src-tesseract').onclick = () => { stopCam(); source = { kind: 'tesseract' }; pick('src-tesseract'); };
   $('src-file').onclick = () => $('file').click();
@@ -174,6 +199,7 @@
 
   function pixels() {
     if (source.kind === 'tesseract') return Tesseract.image((performance.now() - t0) / 1000, { width: 480, height: 480, thickness: 2.5 });
+    if (source.kind === 'shader') return source.sh.frame((performance.now() - t0) / 1000);
     const el = source.el;
     const w = el.videoWidth || el.naturalWidth, h = el.videoHeight || el.naturalHeight;
     if (!w || !h) return null;
