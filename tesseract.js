@@ -202,7 +202,7 @@
   if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
     const args = process.argv.slice(2);
     const USAGE = 'usage: node tesseract.js [--slice] [--fps 30] [--speed 1] [--width N] [--height N] [--frames N]\n' +
-      '  s = toggle slice, q = quit (in a terminal)';
+      '  --frames 0 (the default) runs until stopped; s = toggle slice, q = quit (in a terminal)';
     const fail = (msg) => { process.stderr.write(`tesseract: ${msg}\n`); process.exit(2); };
     // every flag is checked like ascii.js does: --fps 0 and a negative --width crashed with a stack trace, and
     // --width abc or --frames -1 were swallowed without a word (regrade 2)

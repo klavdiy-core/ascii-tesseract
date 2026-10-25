@@ -281,14 +281,17 @@
     if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); process.exit(0); }
     const valued = new Set(['--cols', '--style', '--chars', '--brightness', '--contrast', '--gamma', '--threshold']);
     // an unknown flag or a flag without its value used to be ignored without a word (regrade 2)
+    const known = new Set([...valued, '--invert']);
+    const isValue = (i) => i > 0 && valued.has(args[i - 1]);
     args.forEach((a, i) => {
-      if (!a.startsWith('--')) return;
-      if (!valued.has(a) && a !== '--invert') fail(`unknown option ${a}\n` + USAGE);
-      if (valued.has(a) && (args[i + 1] === undefined || (args[i + 1].startsWith('--') && a !== '--chars'))) {
-        fail(`${a} needs a value`);
-      }
+      if (isValue(i)) return;
+      // single-dash options (-c 10) and a second file were dropped without a word too (regrade 3)
+      if (a.startsWith('-') && !known.has(a)) fail(`unknown option ${a}\n` + USAGE);
+      if (valued.has(a) && (args[i + 1] === undefined || known.has(args[i + 1]))) fail(`${a} needs a value`);
     });
-    const file = args.find((a, i) => !a.startsWith('--') && !(i && valued.has(args[i - 1])));
+    const files = args.filter((a, i) => !a.startsWith('-') && !isValue(i));
+    if (files.length > 1) fail(`one picture at a time (got ${files.length}: ${files.join(', ')})`);
+    const file = files[0];
     if (!file) fail('no picture given\n' + USAGE);
     const style = opt('--style');
     if (style !== undefined && !(style in STYLES)) fail(`unknown style "${style}"; one of: ${Object.keys(STYLES).join(', ')}`);

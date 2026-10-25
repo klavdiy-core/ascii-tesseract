@@ -48,6 +48,11 @@ test('unknown flags, a flag without its value and an empty ramp are said, and a 
     const r = run(['ascii.js', pic, ...args]);
     assert.equal(r.status, 2, `${args.join(' ')} -> ${r.status}`);
   }
+  for (const args of [['-c', '10'], [pic], ['--invert', 'yes'], ['--chars', '--cols', '10']]) {   // regrade 3
+    const r = run(['ascii.js', pic, ...args]);
+    assert.equal(r.status, 2, `${args.join(' ')} -> ${r.status}`);
+  }
+  assert.equal(run(['ascii.js', pic, '--brightness', '-0.5', '--cols', '8']).status, 0);   // a negative value is a value
   const r = run(['ascii.js', pic, '--style', 'nope']);
   assert.equal(r.status, 2);
   assert.doesNotMatch(r.stderr, /g\.pgm/);
