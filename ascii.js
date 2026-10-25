@@ -155,13 +155,14 @@
   // a real decoder; they are refused with what to do instead of being guessed at.
   function decodePNG(buf) {
     const zlib = require('zlib');
-    let pos = 8, w = 0, h = 0, depth = 0, type = 0, inter = 0, plte = null;
+    let pos = 8, w = 0, h = 0, depth = 0, type = 0, inter = 0, plte = null, trns = null;
     const idat = [];
     while (pos + 8 <= buf.length) {
       const len = buf.readUInt32BE(pos), kind = buf.toString('latin1', pos + 4, pos + 8);
       const data = buf.subarray(pos + 8, pos + 8 + len);
       if (kind === 'IHDR') { w = data.readUInt32BE(0); h = data.readUInt32BE(4); depth = data[8]; type = data[9]; inter = data[12]; }
       else if (kind === 'PLTE') plte = data;
+      else if (kind === 'tRNS') trns = data;
       else if (kind === 'IDAT') idat.push(data);
       else if (kind === 'IEND') break;
       pos += 12 + len;
@@ -184,10 +185,17 @@
     const out = new Uint8ClampedArray(w * h * 4);
     for (let k = 0; k < w * h; k++) {
       const s = k * ch;
-      const rgba = type === 0 ? [px[s], px[s], px[s], 255] : type === 2 ? [px[s], px[s + 1], px[s + 2], 255]
+      let rgba = type === 0 ? [px[s], px[s], px[s], 255] : type === 2 ? [px[s], px[s + 1], px[s + 2], 255]
         : type === 3 ? [plte[px[s] * 3], plte[px[s] * 3 + 1], plte[px[s] * 3 + 2], 255]
         : type === 4 ? [px[s], px[s], px[s], px[s + 1]] : [px[s], px[s + 1], px[s + 2], px[s + 3]];
-      out.set(rgba, k * 4);
+      if (trns) {                                   // tRNS: alpha per palette entry, or one transparent colour
+        if (type === 3) rgba[3] = px[s] < trns.length ? trns[px[s]] : 255;
+        else if (type === 0 && px[s] === trns.readUInt16BE(0)) rgba[3] = 0;
+        else if (type === 2 && px[s] === trns.readUInt16BE(0) && px[s + 1] === trns.readUInt16BE(2) && px[s + 2] === trns.readUInt16BE(4)) rgba[3] = 0;
+      }
+      // transparent is background: composited over black (the text has no colour of its own to show through)
+      const a = rgba[3] / 255;
+      out.set([rgba[0] * a, rgba[1] * a, rgba[2] * a, 255], k * 4);
     }
     return { width: w, height: h, data: out };
   }
@@ -226,22 +234,66 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Ascii = api;
 
+  // Otsu's threshold over the picture's tones: the split between its dark and light groups. For braille, whose dots
+  // are on/off, a fixed 0.5 left a dim picture completely blank (25.10 regrade). One flat tone: 0.5.
+  function autoThreshold(img, o) {
+    const hist = new Array(256).fill(0), step = Math.max(1, Math.floor(img.width * img.height / 200000));
+    for (let k = 0; k < img.width * img.height; k += step) {
+      const d = img.data, i = k * 4;
+      hist[Math.round(tone([d[i], d[i + 1], d[i + 2]], o) * 255)]++;
+    }
+    const total = hist.reduce((a, b) => a + b, 0), sum = hist.reduce((a, n, v) => a + n * v, 0);
+    let wB = 0, sB = 0, best = -1, at = -1;
+    for (let t = 0; t < 255; t++) {
+      wB += hist[t]; sB += t * hist[t];
+      const wF = total - wB;
+      if (!wB || !wF) continue;
+      const between = wB * wF * (sB / wB - (sum - sB) / wF) ** 2;
+      if (between > best) { best = between; at = t; }
+    }
+    return at < 0 ? 0.5 : (at + 0.5) / 255;
+  }
+
+  const USAGE = 'usage: node ascii.js picture.png|.ppm|.pgm [--cols 80] [--style ' + Object.keys(STYLES).join('|') + ']\n' +
+    '       [--chars " .oO@"] [--invert] [--brightness -1..1] [--contrast -1..3] [--gamma 0.2..5]\n' +
+    '       [--threshold 0..1]   (braille: a dot is lit at this tone; default: chosen from the picture)';
+
   if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
     const args = process.argv.slice(2);
-    const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : def; };
-    const file = args.find((a, i) => !a.startsWith('--') && !(i && args[i - 1].startsWith('--')));
-    if (!file || args.includes('--help')) {
-      console.log('usage: node ascii.js picture.png|.ppm [--cols 80] [--style classic|detailed|blocks|dots|binary|braille] [--invert]');
-      process.exit(file ? 0 : 2);
-    }
+    const fail = (msg) => { process.stderr.write(`ascii: ${msg}\n`); process.exit(2); };
+    const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+    const num = (name, lo, hi, int) => {
+      const v = opt(name);
+      if (v === undefined) return undefined;
+      const n = Number(v);
+      if (v === '' || !Number.isFinite(n) || n < lo || n > hi || (int && !Number.isInteger(n))) {
+        fail(`${name} ${v}: expected ${int ? 'a whole number' : 'a number'} from ${lo} to ${hi}`);
+      }
+      return n;
+    };
+    if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); process.exit(0); }
+    const valued = new Set(['--cols', '--style', '--chars', '--brightness', '--contrast', '--gamma', '--threshold']);
+    const file = args.find((a, i) => !a.startsWith('--') && !(i && valued.has(args[i - 1])));
+    if (!file) fail('no picture given\n' + USAGE);
     process.stdout.on('error', (e) => { if (e.code === 'EPIPE') process.exit(0); throw e; });
+    const o = {
+      cols: num('--cols', 1, 1000, true) ?? 80, style: opt('--style') ?? 'classic', invert: args.includes('--invert'),
+      brightness: num('--brightness', -1, 1), contrast: num('--contrast', -1, 3), gamma: num('--gamma', 0.2, 5),
+      threshold: num('--threshold', 0, 1),
+    };
+    if (opt('--chars') !== undefined) { o.style = 'custom'; o.chars = opt('--chars'); }
+    let buf;
     try {
-      const image = decodeImage(require('fs').readFileSync(file));
-      const res = render(image, { cols: +opt('--cols', 80), style: opt('--style', 'classic'), invert: args.includes('--invert') });
-      process.stdout.write(toText(res) + '\n');
+      buf = require('fs').readFileSync(file);
     } catch (e) {
-      process.stderr.write(`ascii: ${e.message}\n`);
-      process.exit(2);
+      fail(`cannot read ${file}: ${e.code === 'ENOENT' ? 'no such file' : e.code === 'EISDIR' ? 'it is a folder' : e.message}`);
+    }
+    try {
+      const image = decodeImage(buf);
+      if (o.style === 'braille' && o.threshold === undefined) o.threshold = autoThreshold(image, o);
+      process.stdout.write(toText(render(image, o)) + '\n');
+    } catch (e) {
+      fail(`${file}: ${e.message}`);
     }
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this);

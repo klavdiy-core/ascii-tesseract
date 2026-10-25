@@ -48,8 +48,11 @@ node tesseract.js | head -40  # into a pipe: plain frames, no cursor codes, ends
 node ascii.js photo.png --cols 100 --style detailed   # a picture as text, no browser
 ```
 
-`ascii.js` reads PNG (8-bit, any colour type, not interlaced) with Node's own zlib, and binary PPM/PGM; nothing to
-install. A JPEG or GIF is refused with the command that converts it (`ffmpeg -i in.jpg out.png`), or open
+`ascii.js` reads PNG (8-bit, any colour type, not interlaced; transparency by alpha or tRNS is background) with Node's
+own zlib, and binary PPM/PGM; nothing to install. The tone options of the library are flags too: `--brightness`,
+`--contrast`, `--gamma`, `--chars " .oO@"`, and `--threshold` for braille. Without `--threshold` braille picks one from
+the picture (Otsu's split between its dark and light parts), so a dim photo does not come out blank. A bad number
+(`--cols 0`, `--cols abc`) is an error with the allowed range, `node ascii.js --help` lists everything. A JPEG or GIF is refused with the command that converts it (`ffmpeg -i in.jpg out.png`), or open
 `convert.html`, which reads anything the browser can. In the terminal the cursor comes back however the animation
 ends (q, Ctrl+C, a kill, an error), and a reader that goes away (`| head`) ends it without a stack trace.
 
