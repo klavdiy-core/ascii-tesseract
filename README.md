@@ -44,7 +44,14 @@ git clone https://github.com/klavdiy-core/ascii-tesseract && cd ascii-tesseract
 node tesseract.js            # s = slice / whole, q = quit
 node tesseract.js --slice --speed 0.5
 node tesseract.js --frames 1 --width 80 --height 30   # print one frame and exit
+node tesseract.js | head -40  # into a pipe: plain frames, no cursor codes, ends quietly when the reader does
+node ascii.js photo.png --cols 100 --style detailed   # a picture as text, no browser
 ```
+
+`ascii.js` reads PNG (8-bit, any colour type, not interlaced) with Node's own zlib, and binary PPM/PGM; nothing to
+install. A JPEG or GIF is refused with the command that converts it (`ffmpeg -i in.jpg out.png`), or open
+`convert.html`, which reads anything the browser can. In the terminal the cursor comes back however the animation
+ends (q, Ctrl+C, a kill, an error), and a reader that goes away (`| head`) ends it without a stack trace.
 
 In a browser, open `index.html`: click or press `s` to switch modes, space to pause. As a library: `Tesseract.frame(t, { width, height, slice })` returns one frame as a string (in Node: `require('./tesseract.js')`).
 

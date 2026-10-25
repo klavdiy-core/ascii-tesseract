@@ -218,13 +218,32 @@
       height: val('--height', Math.min((out.rows || 32) - 1, 50)),
     });
     const frames = val('--frames', 0);
-    if (frames) {                       // print N frames and stop (for recording, or a pipe)
-      for (let i = 0; i < frames; i++) out.write(frame(i / fps * speed, { ...size(), slice: sliceMode }) + '\n\f\n');
-      process.exit(0);
+    // the reader went away (`| head`, a closed viewer): that is the end, not a crash
+    out.on('error', (e) => { if (e.code === 'EPIPE') process.exit(0); throw e; });
+    if (frames || !out.isTTY) {
+      // a pipe or a file: plain frames separated by a form feed, never cursor or screen codes. Written with
+      // backpressure, so N frames never pile up in memory; endless into a pipe is paced at --fps.
+      let i = 0;
+      const one = () => frame(i++ / fps * speed, { ...size(), slice: sliceMode }) + '\n\f\n';
+      if (frames) {
+        const pump = () => {
+          while (i < frames) if (!out.write(one())) return out.once('drain', pump);
+          out.end();
+        };
+        pump();
+      } else {
+        setInterval(() => out.write(one()), 1000 / fps);
+      }
+      return;
     }
+    let hidden = true;
     out.write('\x1b[?25l\x1b[2J');
-    const quit = () => { out.write('\x1b[?25h\x1b[0m\n'); process.exit(0); };
+    // the cursor comes back however the program ends: q, Ctrl+C, a kill, an exception
+    const restore = () => { if (hidden) { hidden = false; out.write('\x1b[?25h\x1b[0m\n'); } };
+    process.on('exit', restore);
+    const quit = () => { restore(); process.exit(0); };
     process.on('SIGINT', quit);
+    process.on('SIGTERM', quit);
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
       process.stdin.resume();

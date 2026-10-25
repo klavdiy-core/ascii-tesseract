@@ -150,7 +150,98 @@
     }
   }
 
-  const api = { STYLES, PRESETS, render, toText, draw };
+  // ---------- Node: read a picture file, no dependencies ----------
+  // PNG through Node's own zlib (8-bit, any colour type, not interlaced) and binary PPM/PGM. JPEG and the rest need
+  // a real decoder; they are refused with what to do instead of being guessed at.
+  function decodePNG(buf) {
+    const zlib = require('zlib');
+    let pos = 8, w = 0, h = 0, depth = 0, type = 0, inter = 0, plte = null;
+    const idat = [];
+    while (pos + 8 <= buf.length) {
+      const len = buf.readUInt32BE(pos), kind = buf.toString('latin1', pos + 4, pos + 8);
+      const data = buf.subarray(pos + 8, pos + 8 + len);
+      if (kind === 'IHDR') { w = data.readUInt32BE(0); h = data.readUInt32BE(4); depth = data[8]; type = data[9]; inter = data[12]; }
+      else if (kind === 'PLTE') plte = data;
+      else if (kind === 'IDAT') idat.push(data);
+      else if (kind === 'IEND') break;
+      pos += 12 + len;
+    }
+    if (depth !== 8 || inter !== 0) throw new Error(`PNG with ${depth}-bit samples${inter ? ', interlaced' : ''} is not read here; save it as 8-bit, not interlaced`);
+    const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type];
+    if (!ch) throw new Error(`PNG colour type ${type} is unknown`);
+    const raw = zlib.inflateSync(Buffer.concat(idat)), stride = w * ch;
+    const px = Buffer.alloc(h * stride);
+    for (let y = 0; y < h; y++) {
+      const ft = raw[y * (stride + 1)], src = y * (stride + 1) + 1, dst = y * stride;
+      for (let i = 0; i < stride; i++) {
+        const a = i >= ch ? px[dst + i - ch] : 0, b = y ? px[dst - stride + i] : 0, c = y && i >= ch ? px[dst - stride + i - ch] : 0;
+        const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+        const pred = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][ft];
+        if (pred === undefined) throw new Error(`PNG filter ${ft} is unknown`);
+        px[dst + i] = (raw[src + i] + pred) & 255;
+      }
+    }
+    const out = new Uint8ClampedArray(w * h * 4);
+    for (let k = 0; k < w * h; k++) {
+      const s = k * ch;
+      const rgba = type === 0 ? [px[s], px[s], px[s], 255] : type === 2 ? [px[s], px[s + 1], px[s + 2], 255]
+        : type === 3 ? [plte[px[s] * 3], plte[px[s] * 3 + 1], plte[px[s] * 3 + 2], 255]
+        : type === 4 ? [px[s], px[s], px[s], px[s + 1]] : [px[s], px[s + 1], px[s + 2], px[s + 3]];
+      out.set(rgba, k * 4);
+    }
+    return { width: w, height: h, data: out };
+  }
+
+  function decodePNM(buf) {
+    const tok = [];
+    let pos = 0;
+    while (tok.length < 4) {                       // magic, width, height, maxval; '#' starts a comment
+      while (/\s/.test(String.fromCharCode(buf[pos]))) pos++;
+      if (buf[pos] === 35) { while (buf[pos] !== 10) pos++; continue; }
+      let t = '';
+      while (pos < buf.length && !/\s/.test(String.fromCharCode(buf[pos]))) t += String.fromCharCode(buf[pos++]);
+      tok.push(t);
+    }
+    pos++;
+    const [magic, w, h, max] = [tok[0], +tok[1], +tok[2], +tok[3]];
+    if (max > 255) throw new Error('16-bit PPM/PGM is not read here');
+    const ch = magic === 'P6' ? 3 : 1, out = new Uint8ClampedArray(w * h * 4);
+    for (let k = 0; k < w * h; k++) {
+      const s = pos + k * ch, f = (v) => Math.round(v * 255 / max);
+      out.set(ch === 3 ? [f(buf[s]), f(buf[s + 1]), f(buf[s + 2]), 255] : [f(buf[s]), f(buf[s]), f(buf[s]), 255], k * 4);
+    }
+    return { width: w, height: h, data: out };
+  }
+
+  function decodeImage(buf) {
+    if (buf.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return decodePNG(buf);
+    const magic = buf.toString('latin1', 0, 2);
+    if (magic === 'P6' || magic === 'P5') return decodePNM(buf);
+    const what = buf[0] === 0xff && buf[1] === 0xd8 ? 'JPEG' : buf.toString('latin1', 0, 3) === 'GIF' ? 'GIF' : 'this format';
+    throw new Error(`${what} is not decoded here (no dependencies). Convert it to PNG first, e.g. ` +
+      '`ffmpeg -i in.jpg out.png` or `magick in.jpg out.png`, or open convert.html in a browser, which reads any picture');
+  }
+
+  const api = { STYLES, PRESETS, render, toText, draw, decodeImage };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Ascii = api;
+
+  if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+    const args = process.argv.slice(2);
+    const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : def; };
+    const file = args.find((a, i) => !a.startsWith('--') && !(i && args[i - 1].startsWith('--')));
+    if (!file || args.includes('--help')) {
+      console.log('usage: node ascii.js picture.png|.ppm [--cols 80] [--style classic|detailed|blocks|dots|binary|braille] [--invert]');
+      process.exit(file ? 0 : 2);
+    }
+    process.stdout.on('error', (e) => { if (e.code === 'EPIPE') process.exit(0); throw e; });
+    try {
+      const image = decodeImage(require('fs').readFileSync(file));
+      const res = render(image, { cols: +opt('--cols', 80), style: opt('--style', 'classic'), invert: args.includes('--invert') });
+      process.stdout.write(toText(res) + '\n');
+    } catch (e) {
+      process.stderr.write(`ascii: ${e.message}\n`);
+      process.exit(2);
+    }
+  }
 })(typeof globalThis !== 'undefined' ? globalThis : this);
