@@ -201,15 +201,28 @@
   // ---------- terminal ----------
   if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
     const args = process.argv.slice(2);
+    const USAGE = 'usage: node tesseract.js [--slice] [--fps 30] [--speed 1] [--width N] [--height N] [--frames N]\n' +
+      '  s = toggle slice, q = quit (in a terminal)';
+    const fail = (msg) => { process.stderr.write(`tesseract: ${msg}\n`); process.exit(2); };
+    // every flag is checked like ascii.js does: --fps 0 and a negative --width crashed with a stack trace, and
+    // --width abc or --frames -1 were swallowed without a word (regrade 2)
+    const RANGE = { '--fps': [1, 240, false], '--speed': [-20, 20, false], '--width': [8, 1000, true],
+      '--height': [4, 500, true], '--frames': [0, 100000, true] };
+    if (args.includes('-h') || args.includes('--help')) { console.log(USAGE); process.exit(0); }
+    args.forEach((a, i) => {
+      if (a === '--slice') return;
+      if (!(a in RANGE)) { if (i === 0 || !(args[i - 1] in RANGE)) fail(`unknown option ${a}\n` + USAGE); return; }
+      if (args[i + 1] === undefined) fail(`${a} needs a value`);
+    });
     const val = (name, def) => {
-      const i = args.indexOf(name);
-      return i >= 0 && args[i + 1] !== undefined ? Number(args[i + 1]) : def;
+      const i = args.lastIndexOf(name);              // a repeated flag: the last one wins
+      if (i < 0) return def;
+      const v = args[i + 1], n = Number(v), [lo, hi, int] = RANGE[name];
+      if (v === '' || !Number.isFinite(n) || n < lo || n > hi || (int && !Number.isInteger(n))) {
+        fail(`${name} ${v}: expected ${int ? 'a whole number' : 'a number'} from ${lo} to ${hi}`);
+      }
+      return n;
     };
-    if (args.includes('-h') || args.includes('--help')) {
-      console.log('usage: node tesseract.js [--slice] [--fps 30] [--speed 1] [--width N] [--height N] [--frames N]\n' +
-        '  s = toggle slice, q = quit (in a terminal)');
-      process.exit(0);
-    }
     let sliceMode = args.includes('--slice');
     const fps = val('--fps', 30), speed = val('--speed', 1);
     const out = process.stdout;

@@ -52,7 +52,10 @@ node ascii.js photo.png --cols 100 --style detailed   # a picture as text, no br
 own zlib, and binary PPM/PGM; nothing to install. The tone options of the library are flags too: `--brightness`,
 `--contrast`, `--gamma`, `--chars " .oO@"`, and `--threshold` for braille. Without `--threshold` braille picks one from
 the picture (Otsu's split between its dark and light parts), so a dim photo does not come out blank. A bad number
-(`--cols 0`, `--cols abc`) is an error with the allowed range, `node ascii.js --help` lists everything. A JPEG or GIF is refused with the command that converts it (`ffmpeg -i in.jpg out.png`), or open
+(`--cols 0`, `--cols abc`) is an error with the allowed range, in both `ascii.js` and `tesseract.js` (`--fps 0`,
+`--width -5`); so are an unknown option, an option without its value, and a `--chars` ramp of fewer than two characters
+(emoji ramps work). A repeated option: the last one wins. A cut-off PPM/PGM is an error, not a black picture.
+`node ascii.js --help` lists everything. A JPEG or GIF is refused with the command that converts it (`ffmpeg -i in.jpg out.png`), or open
 `convert.html`, which reads anything the browser can. In the terminal the cursor comes back however the animation
 ends (q, Ctrl+C, a kill, an error), and a reader that goes away (`| head`) ends it without a stack trace.
 

@@ -75,7 +75,9 @@
   function render(img, opts) {
     const o = { cols: 80, style: 'classic', colour: 'mono', ink: [230, 230, 230], aspect: 2, ...opts };
     if (!(o.style in STYLES)) throw new Error(`unknown style "${o.style}"; one of: ${Object.keys(STYLES).join(', ')}`);
-    const ramp = o.style === 'custom' ? (o.chars || STYLES.classic) : STYLES[o.style];
+    // by code point: an emoji ramp split into UTF-16 halves printed U+FFFD (regrade 2)
+    const src = o.style === 'custom' ? (o.chars || STYLES.classic) : STYLES[o.style];
+    const ramp = src == null ? src : Array.from(src);                  // braille has no ramp
     const cols = Math.max(1, Math.round(o.cols));
     const cw = img.width / cols, ch = cw * o.aspect;
     const rows = Math.max(1, Math.round(img.height / ch));
@@ -203,17 +205,22 @@
   function decodePNM(buf) {
     const tok = [];
     let pos = 0;
+    // every loop is bounded by the buffer: a comment with no newline after it looped forever (regrade 2)
     while (tok.length < 4) {                       // magic, width, height, maxval; '#' starts a comment
-      while (/\s/.test(String.fromCharCode(buf[pos]))) pos++;
-      if (buf[pos] === 35) { while (buf[pos] !== 10) pos++; continue; }
+      while (pos < buf.length && /\s/.test(String.fromCharCode(buf[pos]))) pos++;
+      if (pos >= buf.length) throw new Error('unexpected end of file in the PPM/PGM header');
+      if (buf[pos] === 35) { while (pos < buf.length && buf[pos] !== 10) pos++; continue; }
       let t = '';
       while (pos < buf.length && !/\s/.test(String.fromCharCode(buf[pos]))) t += String.fromCharCode(buf[pos++]);
       tok.push(t);
     }
     pos++;
     const [magic, w, h, max] = [tok[0], +tok[1], +tok[2], +tok[3]];
+    if (![w, h, max].every((v) => Number.isInteger(v) && v > 0)) throw new Error('a broken PPM/PGM header');
     if (max > 255) throw new Error('16-bit PPM/PGM is not read here');
     const ch = magic === 'P6' ? 3 : 1, out = new Uint8ClampedArray(w * h * 4);
+    // a short file used to render its missing pixels as black, without a word
+    if (buf.length < pos + w * h * ch) throw new Error(`unexpected end of file (${buf.length - pos} of ${w * h * ch} pixel bytes)`);
     for (let k = 0; k < w * h; k++) {
       const s = pos + k * ch, f = (v) => Math.round(v * 255 / max);
       out.set(ch === 3 ? [f(buf[s]), f(buf[s + 1]), f(buf[s + 2]), 255] : [f(buf[s]), f(buf[s]), f(buf[s]), 255], k * 4);
@@ -261,7 +268,7 @@
   if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
     const args = process.argv.slice(2);
     const fail = (msg) => { process.stderr.write(`ascii: ${msg}\n`); process.exit(2); };
-    const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+    const opt = (name) => { const i = args.lastIndexOf(name); return i >= 0 ? args[i + 1] : undefined; };
     const num = (name, lo, hi, int) => {
       const v = opt(name);
       if (v === undefined) return undefined;
@@ -273,8 +280,22 @@
     };
     if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); process.exit(0); }
     const valued = new Set(['--cols', '--style', '--chars', '--brightness', '--contrast', '--gamma', '--threshold']);
+    // an unknown flag or a flag without its value used to be ignored without a word (regrade 2)
+    args.forEach((a, i) => {
+      if (!a.startsWith('--')) return;
+      if (!valued.has(a) && a !== '--invert') fail(`unknown option ${a}\n` + USAGE);
+      if (valued.has(a) && (args[i + 1] === undefined || (args[i + 1].startsWith('--') && a !== '--chars'))) {
+        fail(`${a} needs a value`);
+      }
+    });
     const file = args.find((a, i) => !a.startsWith('--') && !(i && valued.has(args[i - 1])));
     if (!file) fail('no picture given\n' + USAGE);
+    const style = opt('--style');
+    if (style !== undefined && !(style in STYLES)) fail(`unknown style "${style}"; one of: ${Object.keys(STYLES).join(', ')}`);
+    if (style === 'custom' && opt('--chars') === undefined) fail('--style custom needs --chars "<ramp, dark to light>"');
+    if (opt('--chars') !== undefined && Array.from(opt('--chars')).length < 2) {
+      fail('--chars needs at least two characters (dark to light)');
+    }
     process.stdout.on('error', (e) => { if (e.code === 'EPIPE') process.exit(0); throw e; });
     const o = {
       cols: num('--cols', 1, 1000, true) ?? 80, style: opt('--style') ?? 'classic', invert: args.includes('--invert'),
